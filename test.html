@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Study Session Noise Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #111;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #00ffff;
+      text-shadow: 0 0 10px #0ff;
+    }
+
+    .section { margin: 15px 0; width: 100%; max-width: 400px; }
+
+    .meter {
+      width: 100%;
+      height: 25px;
+      background: #222;
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 0 15px #000;
+    }
+
+    .fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(to right, #0f0, #ff0, #f00);
+      transition: width 0.1s ease;
+    }
+
+    .status, .timer, .export, .room-join {
+      margin-top: 10px;
+      font-size: 1em;
+      padding: 10px;
+      background-color: #333;
+      border-radius: 8px;
+      box-shadow: 0 0 10px #000;
+      text-align: center;
+    }
+
+    input, button {
+      padding: 8px;
+      font-size: 1em;
+      border-radius: 5px;
+      border: none;
+      margin: 5px 0;
+      width: 100%;
+    }
+
+    button {
+      background-color: #0ff;
+      color: #000;
+      cursor: pointer;
+    }
+
+    @media (max-width: 600px) {
+      h1 { font-size: 1.5em; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Study Session 🎧 Noise Tracker</h1>
+
+  <div class="section room-join">
+    <input type="text" id="roomName" placeholder="Enter Room Name" />
+    <button onclick="joinRoom()">Join Room</button>
+    <div id="roomStatus">No room joined</div>
+  </div>
+
+  <div class="section">
+    <div class="meter"><div class="fill" id="fill"></div></div>
+    <div class="status" id="status">Waiting for mic...</div>
+  </div>
+
+  <div class="section timer" id="timer">Study time: 0 min</div>
+
+  <div class="section export">
+    <button onclick="exportCSV()">Export Noise Logs</button>
+  </div>
+
+  <script>
+    let logData = [["Time", "NoiseLevel"]];
+    let studyTime = 0;
+    let loudCounter = 0;
+    let currentRoom = "";
+
+    function joinRoom() {
+      const name = document.getElementById("roomName").value.trim();
+      if (name) {
+        localStorage.setItem("study_room", name);
+        currentRoom = name;
+        document.getElementById("roomStatus").innerText = `Joined Room: ${name}`;
+      }
+    }
+
+    function exportCSV() {
+      const csv = logData.map(row => row.join(",")).join("\n");
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "noise_logs.csv";
+      link.click();
+    }
+
+    function startTimer() {
+      setInterval(() => {
+        studyTime++;
+        document.getElementById("timer").innerText = `Study time: ${studyTime} min`;
+      }, 60000);
+    }
+
+    async function initMic() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioCtx.createAnalyser();
+        const mic = audioCtx.createMediaStreamSource(stream);
+        const processor = audioCtx.createScriptProcessor(256, 1, 1);
+        mic.connect(analyser);
+        analyser.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        const fill = document.getElementById('fill');
+        const status = document.getElementById('status');
+        const buffer = new Uint8Array(analyser.frequencyBinCount);
+
+        processor.onaudioprocess = () => {
+          analyser.getByteFrequencyData(buffer);
+          const avg = buffer.reduce((a, b) => a + b, 0) / buffer.length;
+          const percent = Math.min((avg / 256) * 100, 100);
+          fill.style.width = percent + '%';
+          logData.push([new Date().toLocaleTimeString(), Math.round(percent)]);
+
+          if (percent < 30) {
+            status.textContent = "Quiet - Safe ✅";
+            status.className = "status";
+            loudCounter = 0;
+          } else if (percent < 60) {
+            status.textContent = "Moderate - Keep it down ⚠️";
+            status.className = "status";
+            loudCounter = 0;
+          } else {
+            status.textContent = "Loud - Please Mute ❌";
+            status.className = "status";
+            loudCounter++;
+            if (loudCounter >= 10) {
+              alert("🚨 You've been loud for 10+ seconds. Please mute or reduce background noise.");
+              loudCounter = 0;
+            }
+          }
+        };
+      } catch (err) {
+        document.getElementById('status').textContent = "Microphone access denied!";
+      }
+    }
+
+    // Load joined room if exists
+    window.onload = () => {
+      const room = localStorage.getItem("study_room");
+      if (room) {
+        document.getElementById("roomName").value = room;
+        document.getElementById("roomStatus").innerText = `Joined Room: ${room}`;
+        currentRoom = room;
+      }
+      initMic();
+      startTimer();
+    };
+  </script>
+</body>
+</html>
