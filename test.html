@@ -2,14 +2,24 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Study Session Noise Tracker</title>
+  <title>Study</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <!-- Add Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
   <style>
+    :root {
+      --primary: #00ffff;
+      --background: #1a1a1a;
+      --card-bg: #2d2d2d;
+    }
+
     html, body {
       margin: 0;
       padding: 0;
       height: 100%;
-      background: #111;
+      background: var(--background);
       font-family: 'Segoe UI', sans-serif;
       color: white;
       display: flex;
@@ -19,164 +29,381 @@
     }
 
     h1 {
-      color: #00ffff;
+      color: var(--primary);
       text-shadow: 0 0 10px #0ff;
+      margin-bottom: 2rem;
     }
 
-    .section { margin: 15px 0; width: 100%; max-width: 400px; }
+    .section {
+      margin: 15px 0;
+      width: 100%;
+      max-width: 600px;
+      background: var(--card-bg);
+      border-radius: 15px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
 
     .meter {
       width: 100%;
-      height: 25px;
+      height: 30px;
       background: #222;
       border-radius: 15px;
       overflow: hidden;
-      box-shadow: 0 0 15px #000;
+      position: relative;
     }
 
     .fill {
       height: 100%;
       width: 0%;
-      background: linear-gradient(to right, #0f0, #ff0, #f00);
-      transition: width 0.1s ease;
+      background: linear-gradient(to right, #0f0, #ff0 50%, #f00);
+      transition: width 0.2s ease;
     }
 
-    .status, .timer, .export, .room-join {
-      margin-top: 10px;
-      font-size: 1em;
-      padding: 10px;
-      background-color: #333;
-      border-radius: 8px;
-      box-shadow: 0 0 10px #000;
+    .status-container {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 1rem;
+      gap: 1rem;
+    }
+
+    .status-box {
+      flex: 1;
+      padding: 15px;
+      border-radius: 10px;
       text-align: center;
+      background: #333;
     }
 
-    input, button {
-      padding: 8px;
-      font-size: 1em;
-      border-radius: 5px;
-      border: none;
-      margin: 5px 0;
-      width: 100%;
+    .users-list {
+      margin-top: 1rem;
+      padding: 10px;
+      background: #333;
+      border-radius: 10px;
     }
 
     button {
-      background-color: #0ff;
+      background: var(--primary);
       color: #000;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
       cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
     }
 
-    @media (max-width: 600px) {
-      h1 { font-size: 1.5em; }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+    }
+
+    input {
+      padding: 12px;
+      background: #333;
+      border: 2px solid #444;
+      border-radius: 8px;
+      color: white;
+      width: 100%;
+      margin-bottom: 1rem;
+    }
+
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid var(--primary);
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    #historyChart {
+      margin-top: 2rem;
+      width: 100% !important;
+      height: 300px !important;
     }
   </style>
 </head>
 <body>
-  <h1>Study Session 🎧 Noise Tracker</h1>
+  <h1>📚 study with the homies</h1>
 
-  <div class="section room-join">
-    <input type="text" id="roomName" placeholder="Enter Room Name" />
-    <button onclick="joinRoom()">Join Room</button>
-    <div id="roomStatus">No room joined</div>
+  <div class="section">
+    <div id="authSection">
+      <input type="text" id="roomCode" placeholder="Enter Room Code" />
+      <button onclick="joinRoom()">Join/Create Room</button>
+      <div id="roomStatus" class="status-box">Disconnected</div>
+      <div class="users-list" id="usersList"></div>
+    </div>
   </div>
 
   <div class="section">
-    <div class="meter"><div class="fill" id="fill"></div></div>
-    <div class="status" id="status">Waiting for mic...</div>
+    <div class="meter">
+      <div class="fill" id="fill"></div>
+    </div>
+    <div class="status-container">
+      <div class="status-box" id="status">Calibrating...</div>
+      <div class="status-box" id="timer">00:00:00</div>
+    </div>
   </div>
 
-  <div class="section timer" id="timer">Study time: 0 min</div>
-
-  <div class="section export">
-    <button onclick="exportCSV()">Export Noise Logs</button>
+  <div class="section">
+    <canvas id="historyChart"></canvas>
   </div>
 
+  <div class="section" style="text-align: center;">
+    <button onclick="exportData()">Export Session Data</button>
+    <button onclick="toggleMute()" id="muteButton" style="margin-top: 1rem;">Mute Mic</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    let logData = [["Time", "NoiseLevel"]];
-    let studyTime = 0;
-    let loudCounter = 0;
-    let currentRoom = "";
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_AUTH_DOMAIN",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_STORAGE_BUCKET",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
 
-    function joinRoom() {
-      const name = document.getElementById("roomName").value.trim();
-      if (name) {
-        localStorage.setItem("study_room", name);
-        currentRoom = name;
-        document.getElementById("roomStatus").innerText = `Joined Room: ${name}`;
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const rtdb = firebase.database();
+
+    let audioContext, analyser, mic, processor;
+    let currentRoom = null;
+    let userId = null;
+    let isMuted = false;
+    let sessionStartTime = null;
+    let chart = null;
+
+    // Generate unique user ID
+    function generateUserId() {
+      return 'user-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    async function joinRoom() {
+      const roomCode = document.getElementById('roomCode').value.trim();
+      if (!roomCode) return alert('Please enter a room code');
+      
+      userId = generateUserId();
+      showLoader();
+
+      try {
+        // Check/create room in Realtime Database
+        const roomRef = rtdb.ref(`rooms/${roomCode}`);
+        const snapshot = await roomRef.once('value');
+        
+        if (!snapshot.exists()) {
+          await roomRef.set({
+            createdAt: firebase.database.ServerValue.TIMESTAMP,
+            activeUsers: { [userId]: true }
+          });
+        } else {
+          await roomRef.child(`activeUsers/${userId}`).set(true);
+        }
+
+        currentRoom = roomCode;
+        setupRoomListeners();
+        initMic();
+        startSessionTimer();
+        initChart();
+        setupPresence();
+      } catch (error) {
+        alert('Error joining room: ' + error.message);
+      } finally {
+        hideLoader();
       }
     }
 
-    function exportCSV() {
-      const csv = logData.map(row => row.join(",")).join("\n");
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "noise_logs.csv";
-      link.click();
+    function setupRoomListeners() {
+      // Listen for user updates
+      rtdb.ref(`rooms/${currentRoom}/activeUsers`).on('value', (snapshot) => {
+        const users = snapshot.val() || {};
+        updateUserList(Object.keys(users));
+      });
+
+      // Listen for noise data updates
+      db.collection(`rooms/${currentRoom}/noiseData`)
+        .orderBy('timestamp', 'asc')
+        .onSnapshot((snapshot) => {
+          const data = snapshot.docs.map(doc => doc.data());
+          updateChart(data);
+        });
     }
 
-    function startTimer() {
-      setInterval(() => {
-        studyTime++;
-        document.getElementById("timer").innerText = `Study time: ${studyTime} min`;
-      }, 60000);
+    function updateUserList(users) {
+      const list = document.getElementById('usersList');
+      list.innerHTML = `<strong>Active Studiers (${users.length}):</strong><br>` +
+        users.map(user => `👤 ${user.substr(0, 8)}`).join(', ');
     }
 
     async function initMic() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const analyser = audioCtx.createAnalyser();
-        const mic = audioCtx.createMediaStreamSource(stream);
-        const processor = audioCtx.createScriptProcessor(256, 1, 1);
+        audioContext = new AudioContext();
+        analyser = audioContext.createAnalyser();
+        mic = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(256, 1, 1);
+
         mic.connect(analyser);
         analyser.connect(processor);
-        processor.connect(audioCtx.destination);
+        processor.connect(audioContext.destination);
 
-        const fill = document.getElementById('fill');
-        const status = document.getElementById('status');
+        analyser.fftSize = 256;
         const buffer = new Uint8Array(analyser.frequencyBinCount);
 
         processor.onaudioprocess = () => {
+          if (isMuted) return;
+          
           analyser.getByteFrequencyData(buffer);
-          const avg = buffer.reduce((a, b) => a + b, 0) / buffer.length;
-          const percent = Math.min((avg / 256) * 100, 100);
-          fill.style.width = percent + '%';
-          logData.push([new Date().toLocaleTimeString(), Math.round(percent)]);
-
-          if (percent < 30) {
-            status.textContent = "Quiet - Safe ✅";
-            status.className = "status";
-            loudCounter = 0;
-          } else if (percent < 60) {
-            status.textContent = "Moderate - Keep it down ⚠️";
-            status.className = "status";
-            loudCounter = 0;
-          } else {
-            status.textContent = "Loud - Please Mute ❌";
-            status.className = "status";
-            loudCounter++;
-            if (loudCounter >= 10) {
-              alert("🚨 You've been loud for 10+ seconds. Please mute or reduce background noise.");
-              loudCounter = 0;
-            }
-          }
+          const avg = buffer.reduce((a, b) => a + b) / buffer.length;
+          const noiseLevel = Math.min((avg / 255) * 100, 100);
+          
+          updateMeter(noiseLevel);
+          saveNoiseData(noiseLevel);
+          updateStatus(noiseLevel);
         };
-      } catch (err) {
-        document.getElementById('status').textContent = "Microphone access denied!";
+      } catch (error) {
+        alert('Microphone access required for noise tracking');
       }
     }
 
-    // Load joined room if exists
-    window.onload = () => {
-      const room = localStorage.getItem("study_room");
-      if (room) {
-        document.getElementById("roomName").value = room;
-        document.getElementById("roomStatus").innerText = `Joined Room: ${room}`;
-        currentRoom = room;
+    function updateMeter(level) {
+      document.getElementById('fill').style.width = `${level}%`;
+    }
+
+    async function saveNoiseData(level) {
+      await db.collection(`rooms/${currentRoom}/noiseData`).add({
+        value: level,
+        userId: userId,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    function updateStatus(level) {
+      const status = document.getElementById('status');
+      let message = '';
+      
+      if (level < 30) {
+        message = 'Optimal Focus 🧘';
+        status.style.color = '#0f0';
+      } else if (level < 60) {
+        message = 'Moderate Noise 🗣️';
+        status.style.color = '#ff0';
+      } else {
+        message = 'Too Loud! 🔇';
+        status.style.color = '#f00';
       }
-      initMic();
-      startTimer();
+      
+      status.textContent = message;
+    }
+
+    function initChart() {
+      const ctx = document.getElementById('historyChart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Room Noise Level',
+            data: [],
+            borderColor: '#00ffff',
+            tension: 0.3,
+            fill: false
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              min: 0,
+              max: 100,
+              title: { text: 'Noise Level (%)', display: true }
+            },
+            x: { title: { text: 'Time', display: true } }
+          }
+        }
+      });
+    }
+
+    function updateChart(data) {
+      const labels = data.map(entry => new Date(entry.timestamp?.toDate()).toLocaleTimeString());
+      const values = data.map(entry => entry.value);
+      
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = values;
+      chart.update();
+    }
+
+    function startSessionTimer() {
+      sessionStartTime = Date.now();
+      setInterval(() => {
+        const elapsed = Date.now() - sessionStartTime;
+        const hours = Math.floor(elapsed / 3600000);
+        const minutes = Math.floor((elapsed % 3600000) / 60000);
+        const seconds = Math.floor((elapsed % 60000) / 1000);
+        document.getElementById('timer').textContent = 
+          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      }, 1000);
+    }
+
+    async function exportData() {
+      if (!currentRoom) return alert('Join a room first');
+      
+      const snapshot = await db.collection(`rooms/${currentRoom}/noiseData`)
+        .orderBy('timestamp', 'asc').get();
+      
+      const csv = [
+        ['Timestamp', 'Noise Level (%)', 'User ID'],
+        ...snapshot.docs.map(doc => {
+          const data = doc.data();
+          return [
+            data.timestamp.toDate().toLocaleString(),
+            data.value.toFixed(2),
+            data.userId
+          ];
+        })
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `study-session-${currentRoom}.csv`;
+      link.click();
+    }
+
+    function toggleMute() {
+      isMuted = !isMuted;
+      document.getElementById('muteButton').textContent = 
+        isMuted ? 'Unmute Mic' : 'Mute Mic';
+    }
+
+    function setupPresence() {
+      const userRef = rtdb.ref(`rooms/${currentRoom}/activeUsers/${userId}`);
+      userRef.onDisconnect().remove();
+    }
+
+    function showLoader() {
+      document.getElementById('roomStatus').innerHTML = '<div class="loader"></div>';
+    }
+
+    function hideLoader() {
+      document.getElementById('roomStatus').textContent = `Connected to: ${currentRoom}`;
+    }
+
+    window.onbeforeunload = () => {
+      if (currentRoom) {
+        rtdb.ref(`rooms/${currentRoom}/activeUsers/${userId}`).remove();
+      }
     };
   </script>
 </body>
